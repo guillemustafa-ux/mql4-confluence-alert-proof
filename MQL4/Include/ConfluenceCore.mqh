@@ -73,8 +73,8 @@ private:
    int               m_count;
 
 public:
-                     CCMemory(void) { Reset(); }
    void              Reset(void) { m_next = 0; m_count = 0; }
+                     CCMemory(void) { Reset(); }
    int               Capacity(void) const { return(CC_MEMORY_SIZE); }
    int               Count(void) const { return(m_count); }
 
