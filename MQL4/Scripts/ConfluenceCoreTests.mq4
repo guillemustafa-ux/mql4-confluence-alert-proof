@@ -54,7 +54,7 @@ void EmptyWindow(CCBar &bars[], const int count, const datetime lastClosedTime)
   {
    ArrayResize(bars, count);
    for(int k = 0; k < count; k++)
-      ClearBar(bars[k], (datetime)(lastClosedTime - k * BAR_SECONDS), k + 1);
+      ClearBar(bars[k], (datetime)((long)lastClosedTime - (long)k * BAR_SECONDS), k + 1);
   }
 
 int FindShift(const CCBar &bars[], const datetime barTime)
@@ -199,6 +199,11 @@ string TestMemoryRingKeepsMostRecent()
    CCMemory memory;
    int cap = memory.Capacity();
    int extra = 44;
+   // A bar can only be forgotten while it is in the window if fewer than
+   // 2L-1 slots exist (see TestWorstCaseKeepsBarWhileInWindow).
+   if(cap < 2 * CC_MAX_LOOKBACK - 1)
+      return("capacity " + IntegerToString(cap) + " is below 2 * CC_MAX_LOOKBACK - 1 = " +
+             IntegerToString(2 * CC_MAX_LOOKBACK - 1));
    datetime t0 = D'2026.01.01 00:00';
 
    for(int i = 0; i < cap + extra; i++)
@@ -327,7 +332,8 @@ string TestSignalThenDivergenceOnSameBar()
 
 //--- 600 consecutive bars, every bar a confluence, lookback 100, one bar per
 //--- step. Each bar time must be reported as new exactly once while it moves
-//--- through all 100 shifts, which is the case the 256-slot memory is sized for.
+//--- through all 100 shifts. Only one new bar time enters per step, so this is
+//--- a long-run check, not the worst case for the memory size.
 string TestStreamOneNewPerBarTime()
   {
    CCOptions opt;
@@ -361,7 +367,7 @@ string TestStreamOneNewPerBarTime()
         {
          if(!matches[m].isNew)
             continue;
-         int slot = (int)((matches[m].time - t0) / BAR_SECONDS) + lookback - 1;
+         int slot = (int)(((long)matches[m].time - (long)t0) / BAR_SECONDS) + lookback - 1;
          if(slot < 0 || slot >= slots)
             return("bar time outside the simulated range");
          newCount[slot]++;
@@ -371,6 +377,53 @@ string TestStreamOneNewPerBarTime()
    for(int i = 0; i < slots; i++)
       if(newCount[i] != 1)
          return("bar " + IntegerToString(i) + " reported as new " + IntegerToString(newCount[i]) + " times");
+   return("");
+  }
+
+//--- Worst case for the memory size: X alerts at shift 1, then on every step
+//--- until X sits at the last shift of the window, both the newest bar and the
+//--- oldest bar of the window get a confluence. That pushes 2L-3 other bar
+//--- times (197 for L = 100) into the memory while X can still be found, so
+//--- this fails with 197 slots or fewer and passes with 256.
+string TestWorstCaseKeepsBarWhileInWindow()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCMemory memory;
+   CCBar bars[];
+   CCMatch matches[];
+   int lookback = CC_MAX_LOOKBACK;
+   datetime x = D'2026.01.05 00:00';
+
+   // Step 0: X has just closed (shift 1) and is the only confluence.
+   EmptyWindow(bars, lookback, x);
+   bars[0].signalBuy = true;
+   bars[0].regularBull = true;
+   int found = CC_Scan(bars, lookback, opt, memory, matches);
+   if(found != 1 || CountNew(matches, found) != 1)
+      return("step 0: X not reported once as new");
+
+   for(int step = 1; step < lookback; step++)
+     {
+      EmptyWindow(bars, lookback, (datetime)((long)x + (long)step * BAR_SECONDS));
+      int k = FindShift(bars, x);
+      if(k != step)
+         return("test setup: X at index " + IntegerToString(k) + " on step " + IntegerToString(step));
+      bars[k].signalBuy = true;                // X keeps its arrows
+      bars[k].regularBull = true;
+      bars[0].signalBuy = true;                // a new bar
+      bars[0].regularBull = true;
+      bars[lookback - 1].signalBuy = true;     // the oldest bar still in the window
+      bars[lookback - 1].regularBull = true;
+
+      found = CC_Scan(bars, lookback, opt, memory, matches);
+      for(int m = 0; m < found; m++)
+         if(matches[m].time == x && matches[m].isNew)
+            return("X reported as new again at shift " + IntegerToString(step + 1));
+      if(!memory.Seen(x))
+         return("X forgotten at shift " + IntegerToString(step + 1) + " with " +
+                IntegerToString(memory.Capacity()) + " slots");
+     }
    return("");
   }
 
@@ -387,5 +440,6 @@ void OnStart()
    Report("OutsideLookbackIsIgnored", TestOutsideLookbackIsIgnored());
    Report("SignalThenDivergenceOnSameBar", TestSignalThenDivergenceOnSameBar());
    Report("StreamOneNewPerBarTime", TestStreamOneNewPerBarTime());
+   Report("WorstCaseKeepsBarWhileInWindow", TestWorstCaseKeepsBarWhileInWindow());
    Print(IntegerToString(g_passed), " passed, ", IntegerToString(g_failed), " failed");
   }
