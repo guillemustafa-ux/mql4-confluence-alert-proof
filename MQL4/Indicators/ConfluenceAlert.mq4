@@ -58,6 +58,7 @@ double    g_bearMarks[];
 CCMemory  g_memory;
 CCOptions g_options;
 datetime  g_lastBarTime = 0;
+datetime  g_errorBarTime = 0;
 bool      g_primed = false;
 
 int OnInit()
@@ -82,6 +83,7 @@ int OnInit()
    // alerting, so a reload does not resend old confluences.
    g_memory.Reset();
    g_lastBarTime = 0;
+   g_errorBarTime = 0;
    g_primed = false;
 
    SetIndexBuffer(0, g_bullMarks);
@@ -162,7 +164,9 @@ string DescribeMatch(const CCMatch &match)
 void SendAlerts(const string body, const string latest, const int freshCount)
   {
    string subject = "ConfluenceAlert " + Symbol() + " " + TimeframeName();
-   // Print runs in the Strategy Tester, where Alert/SendMail/SendNotification do not.
+   // The reference lists Alert/SendMail/SendNotification as not executed in the
+   // Strategy Tester and Print as skipped only during optimization, so Print is
+   // expected to leave the alert text in the tester log (to be confirmed in T4).
    Print(subject, ": ", body);
 
    if(InpPopup)
@@ -178,10 +182,11 @@ void SendAlerts(const string body, const string latest, const int freshCount)
      }
   }
 
-void Evaluate(const datetime &time[], const double &high[], const double &low[])
+bool Evaluate(const datetime &time[], const double &high[], const double &low[])
   {
    CCBar bars[];
    ArrayResize(bars, InpLookback);
+   ResetLastError();
    for(int k = 0; k < InpLookback; k++)
      {
       int shift = k + 1;     // shift 0 is still forming and is never evaluated
@@ -195,14 +200,27 @@ void Evaluate(const datetime &time[], const double &high[], const double &low[])
       bars[k].hiddenBear  = ReadB(InpBHidBearBuffer, shift);
      }
 
+   // A failed read may return a value that looks like "no arrow". Scanning it
+   // would record an empty window (and, on the first evaluation, prime on it,
+   // so old confluences would alert on the next bar). Nothing is recorded
+   // and the caller retries on the next tick.
+   int readError = GetLastError();
+   if(readError != 0)
+     {
+      if(time[0] != g_errorBarTime)
+         Print("ConfluenceAlert: reading A or B failed, error ", IntegerToString(readError), "; retrying on the next tick");
+      g_errorBarTime = time[0];
+      return(false);
+     }
+
    CCMatch matches[];
    int found = CC_Scan(bars, InpLookback, g_options, g_memory, matches);
 
    // Markers inside the window follow what A and B show now; older markers stay.
-   for(int shift = 1; shift <= InpLookback; shift++)
+   for(int clearShift = 1; clearShift <= InpLookback; clearShift++)
      {
-      g_bullMarks[shift] = EMPTY_VALUE;
-      g_bearMarks[shift] = EMPTY_VALUE;
+      g_bullMarks[clearShift] = EMPTY_VALUE;
+      g_bearMarks[clearShift] = EMPTY_VALUE;
      }
 
    string body = "";
@@ -228,6 +246,7 @@ void Evaluate(const datetime &time[], const double &high[], const double &low[])
    g_primed = true;
    if(freshCount > 0)
       SendAlerts(body, latest, freshCount);
+   return(true);
   }
 
 int OnCalculate(const int rates_total,
@@ -260,8 +279,9 @@ int OnCalculate(const int rates_total,
    // window; the memory keeps that redraw from alerting again.
    if(time[0] == g_lastBarTime && prev_calculated > 0)
       return(rates_total);
-   g_lastBarTime = time[0];
 
-   Evaluate(time, high, low);
+   // Only a successful evaluation consumes the bar; after a failed read the
+   // next tick evaluates again, and the memory still blocks repeats.
+   g_lastBarTime = Evaluate(time, high, low) ? time[0] : (datetime)0;
    return(rates_total);
   }
