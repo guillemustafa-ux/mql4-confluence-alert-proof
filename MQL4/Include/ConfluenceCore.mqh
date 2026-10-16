@@ -215,6 +215,7 @@ string CC_DivergenceName(const ENUM_CC_DIVERGENCE divergence)
       case CC_DIV_HIDDEN_BEAR:  return("hidden bearish");
       default:                  return("none");
      }
+   return("none");
   }
 
 #endif

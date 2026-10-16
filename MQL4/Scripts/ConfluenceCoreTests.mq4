@@ -199,18 +199,18 @@ string TestMemoryRingKeepsMostRecent()
    CCMemory memory;
    int cap = memory.Capacity();
    int extra = 44;
-   datetime base = D'2026.01.01 00:00';
+   datetime t0 = D'2026.01.01 00:00';
 
    for(int i = 0; i < cap + extra; i++)
-      memory.Remember((datetime)(base + i * BAR_SECONDS));
+      memory.Remember((datetime)(t0 + i * BAR_SECONDS));
 
    if(memory.Count() != cap)
       return("count " + IntegerToString(memory.Count()) + ", expected " + IntegerToString(cap));
    for(int i = extra; i < cap + extra; i++)
-      if(!memory.Seen((datetime)(base + i * BAR_SECONDS)))
+      if(!memory.Seen((datetime)(t0 + i * BAR_SECONDS)))
          return("forgot recent entry " + IntegerToString(i));
    for(int i = 0; i < extra; i++)
-      if(memory.Seen((datetime)(base + i * BAR_SECONDS)))
+      if(memory.Seen((datetime)(t0 + i * BAR_SECONDS)))
          return("still holds overwritten entry " + IntegerToString(i));
    return("");
   }
@@ -289,6 +289,91 @@ string TestOutsideLookbackIsIgnored()
    return("");
   }
 
+//--- A marks the bar first; B draws its arrow back onto the same bar one
+//--- evaluation later. The confluence exists only from evaluation 2 on.
+string TestSignalThenDivergenceOnSameBar()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCMemory memory;
+   CCBar bars[];
+   CCMatch matches[];
+   datetime barTime = D'2026.01.05 10:00';
+
+   // Evaluation 1: the bar has just closed (shift 1), only A marks it.
+   EmptyWindow(bars, 5, barTime);
+   bars[0].signalBuy = true;
+   int found = CC_Scan(bars, 5, opt, memory, matches);
+   if(found != 0)
+      return("evaluation 1: found " + IntegerToString(found) + ", expected 0");
+
+   // Evaluation 2: next bar, B's arrow now sits on the same bar (shift 2).
+   EmptyWindow(bars, 5, (datetime)(barTime + BAR_SECONDS));
+   bars[1].signalBuy = true;
+   bars[1].regularBull = true;
+   found = CC_Scan(bars, 5, opt, memory, matches);
+   if(found != 1 || CountNew(matches, found) != 1 || matches[0].time != barTime)
+      return("evaluation 2: expected exactly 1 new match on the same bar time");
+
+   // Evaluation 3: one bar later, both arrows still there (shift 3).
+   EmptyWindow(bars, 5, (datetime)(barTime + 2 * BAR_SECONDS));
+   bars[2].signalBuy = true;
+   bars[2].regularBull = true;
+   found = CC_Scan(bars, 5, opt, memory, matches);
+   if(found != 1 || CountNew(matches, found) != 0)
+      return("evaluation 3: expected the match again, not as new");
+   return("");
+  }
+
+//--- 600 consecutive bars, every bar a confluence, lookback 100, one bar per
+//--- step. Each bar time must be reported as new exactly once while it moves
+//--- through all 100 shifts, which is the case the 256-slot memory is sized for.
+string TestStreamOneNewPerBarTime()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCMemory memory;
+   CCBar bars[];
+   CCMatch matches[];
+   int lookback = 100;
+   int steps = 600;
+   datetime t0 = D'2026.01.05 00:00';
+
+   // Bar times seen run from lookback-1 bars before t0 to steps-1 bars after it.
+   int slots = steps + lookback - 1;
+   int newCount[];
+   ArrayResize(newCount, slots);
+   for(int i = 0; i < slots; i++)
+      newCount[i] = 0;
+
+   for(int step = 0; step < steps; step++)
+     {
+      EmptyWindow(bars, lookback, (datetime)(t0 + step * BAR_SECONDS));
+      for(int k = 0; k < lookback; k++)
+        {
+         bars[k].signalBuy = true;
+         bars[k].regularBull = true;
+        }
+      int found = CC_Scan(bars, lookback, opt, memory, matches);
+      if(found != lookback)
+         return("step " + IntegerToString(step) + ": found " + IntegerToString(found));
+      for(int m = 0; m < found; m++)
+        {
+         if(!matches[m].isNew)
+            continue;
+         int slot = (int)((matches[m].time - t0) / BAR_SECONDS) + lookback - 1;
+         if(slot < 0 || slot >= slots)
+            return("bar time outside the simulated range");
+         newCount[slot]++;
+        }
+     }
+
+   for(int i = 0; i < slots; i++)
+      if(newCount[i] != 1)
+         return("bar " + IntegerToString(i) + " reported as new " + IntegerToString(newCount[i]) + " times");
+   return("");
+  }
+
 void OnStart()
   {
    Report("SameBarAlertsOnceAcrossTicks", TestSameBarAlertsOnceAcrossTicks());
@@ -300,5 +385,7 @@ void OnStart()
    Report("EmptyValueAndZeroAreNoSignal", TestEmptyValueAndZeroAreNoSignal());
    Report("RegularHiddenSwitches", TestRegularHiddenSwitches());
    Report("OutsideLookbackIsIgnored", TestOutsideLookbackIsIgnored());
+   Report("SignalThenDivergenceOnSameBar", TestSignalThenDivergenceOnSameBar());
+   Report("StreamOneNewPerBarTime", TestStreamOneNewPerBarTime());
    Print(IntegerToString(g_passed), " passed, ", IntegerToString(g_failed), " failed");
   }
