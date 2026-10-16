@@ -16,7 +16,7 @@ Bars are addressed by shift, counted back from the forming bar:
 > "The current bar which is the last in the array is indexed as 0."
 > — <https://docs.mql4.com/predefined/time>
 
-The closed bar is shift 1, and its values do not change until the next bar opens. A naive check runs on every tick:
+The closed bar is shift 1, and for non-repainting indicators its values do not change until the next bar opens. A naive check runs on every tick:
 
 ```mql4
 // Broken: true on every tick of the bar after the confluence.
@@ -30,10 +30,10 @@ That sends one email per tick until the next bar opens.
 
 Two independent guards, so a mistake in one does not reopen the bug:
 
-1. `ConfluenceAlert.mq4` evaluates only when the open time of bar 0 changes (a new bar), or when the terminal resets `prev_calculated` to zero after a history reload:
+1. `ConfluenceAlert.mq4` evaluates only when the open time of bar 0 changes (a new bar), when the terminal resets `prev_calculated` to zero after a history reload, or on the next tick after a read of A or B set an error:
    > "the value of the input parameter prev_calculated will be set to zero by the terminal."
    > — <https://docs.mql4.com/basis/function/events>
-2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. Test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match.
+2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. The unit tests cover this guard: test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match. The new-bar gate in guard 1 lives in the indicator and is not unit tested; it is checked on a chart in T4.
 
 ## 2. Backdrawn arrows
 
@@ -43,7 +43,7 @@ Pivot and divergence indicators cannot know that a bar is a pivot until some bar
 
 `iCustom()` reads one buffer value at one shift:
 
-> "Index of the value taken from the indicator buffer."
+> "Index of the value taken from the indicator buffer (shift relative to the current bar the given amount of periods ago)."
 > — <https://docs.mql4.com/indicators/icustom>
 
 Two naive fixes both fail:
@@ -58,7 +58,7 @@ On each new bar, `ConfluenceAlert.mq4` reads shifts `1..InpLookback` and passes 
 Limits that follow from the mechanism:
 
 - An arrow drawn back further than `InpLookback` bars is never seen. Test `OutsideLookbackIsIgnored` shows a match at shift 7 is missed with lookback 5 and found with lookback 8. Set `InpLookback` larger than B's backdraw.
-- The memory holds 256 bar times. While one bar stays in a window of L bars, at most 2L-1 distinct bars pass through that window, so for the allowed `InpLookback` of 1..100 a bar cannot be forgotten while it can still be found. Test `MemoryRingKeepsMostRecent` checks that the newest 256 entries survive a wrap.
+- The memory holds 256 bar times. While one bar stays in a window of L bars, at most 2L-1 distinct bars pass through that window, so for the allowed `InpLookback` of 1..100 a bar cannot be forgotten while it can still be found. Test `MemoryRingKeepsMostRecent` checks that the newest 256 entries survive a wrap. Test `StreamOneNewPerBarTime` runs 600 bars with a confluence on every bar and lookback 100, one bar per step, and expects each bar time to be reported as new exactly once. In that stream only the newest bar is added on each step, so it exercises the wrap over many bars but not the 2L-1 worst case.
 
 ## The "no signal" rule
 
@@ -81,9 +81,9 @@ The alert channels do not run in the Strategy Tester:
 > "The Alert(), MessageBox(), PlaySound(), SendFTP, SendMail(), SendNotification() and WebRequest() functions" ... "are not executed in the Strategy Tester."
 > — <https://docs.mql4.com/runtime/testing>
 
-`Print()` still runs there, except during optimization:
+`Print()` is not on that list. The same page says it is skipped during optimization, so it is expected to run in a normal visual test (an inference, to be confirmed in T4):
 
 > "To increase performance, Print() and PrintFormat() functions are not executed when optimizing the trading robot's parameters."
 > — <https://docs.mql4.com/runtime/testing>
 
-So the tester shows the markers and the printed alert text; email, push and popup are checked on a live or demo chart.
+So the tester is expected to show the markers and the printed alert text (to be confirmed in T4); email, push and popup are checked on a live or demo chart.
