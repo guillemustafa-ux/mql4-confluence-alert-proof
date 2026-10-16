@@ -6,7 +6,7 @@
 //| that are directly called from the expert under test". Indicators |
 //| called through ConfluenceAlert are not called directly, so A and |
 //| B are called here as well. That all three appear on the tester   |
-//| chart is expected from that sentence, to be confirmed in T4.     |
+//| chart is expected from that sentence, to be confirmed on a chart.|
 //+------------------------------------------------------------------+
 #property strict
 #property description "Runs SwingArrows, RsiDivergence and ConfluenceAlert in the visual tester. No trading."

@@ -33,7 +33,7 @@ Two independent guards, so a mistake in one does not reopen the bug:
 1. `ConfluenceAlert.mq4` evaluates only when the open time of bar 0 changes (a new bar), when the terminal resets `prev_calculated` to zero after a history reload, or on the next tick after a read of A or B set an error:
    > "the value of the input parameter prev_calculated will be set to zero by the terminal."
    > — <https://docs.mql4.com/basis/function/events>
-2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. The unit tests cover this guard: test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match. The new-bar gate in guard 1 lives in the indicator and is not unit tested; it is checked on a chart in T4.
+2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. The unit tests cover this guard: test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match. The new-bar gate in guard 1 lives in the indicator and is not unit tested; it is to be checked on a chart.
 
 ## 2. Backdrawn arrows
 
@@ -58,7 +58,7 @@ On each new bar, `ConfluenceAlert.mq4` reads shifts `1..InpLookback` and passes 
 Limits that follow from the mechanism:
 
 - An arrow drawn back further than `InpLookback` bars is never seen. Test `OutsideLookbackIsIgnored` shows a match at shift 7 is missed with lookback 5 and found with lookback 8. Set `InpLookback` larger than B's backdraw.
-- The memory holds 256 bar times. While one bar stays in a window of L bars, at most 2L-1 distinct bars pass through that window, so for the allowed `InpLookback` of 1..100 a bar cannot be forgotten while it can still be found. Test `MemoryRingKeepsMostRecent` checks that the newest 256 entries survive a wrap. Test `StreamOneNewPerBarTime` runs 600 bars with a confluence on every bar and lookback 100, one bar per step, and expects each bar time to be reported as new exactly once. In that stream only the newest bar is added on each step, so it exercises the wrap over many bars but not the 2L-1 worst case.
+- The memory holds 256 bar times. While one bar stays in a window of L bars, at most 2L-1 distinct bars pass through that window, so for the allowed `InpLookback` of 1..100 a bar cannot be forgotten while it can still be found. Test `MemoryRingKeepsMostRecent` checks that the newest 256 entries survive a wrap. Test `StreamOneNewPerBarTime` runs 600 bars with a confluence on every bar and lookback 100, one bar per step, and expects each bar time to be reported as new exactly once. In that stream only the newest bar is added on each step, so it exercises the wrap over many bars but not the 2L-1 worst case. Test `WorstCaseKeepsBarWhileInWindow` covers that case: while one bar moves from shift 1 to shift 100, the newest bar and the oldest bar of the window get a confluence on every step, 197 other bar times enter the memory, and the bar must still be remembered at shift 100. It would fail with 197 slots or fewer. Test `MemoryRingKeepsMostRecent` also fails if the capacity drops below 2 * 100 - 1.
 
 ## The "no signal" rule
 
@@ -81,9 +81,9 @@ The alert channels do not run in the Strategy Tester:
 > "The Alert(), MessageBox(), PlaySound(), SendFTP, SendMail(), SendNotification() and WebRequest() functions" ... "are not executed in the Strategy Tester."
 > — <https://docs.mql4.com/runtime/testing>
 
-`Print()` is not on that list. The same page says it is skipped during optimization, so it is expected to run in a normal visual test (an inference, to be confirmed in T4):
+`Print()` is not on that list. The same page says it is skipped during optimization, so it is expected to run in a normal visual test (an inference, to be confirmed on a chart):
 
 > "To increase performance, Print() and PrintFormat() functions are not executed when optimizing the trading robot's parameters."
 > — <https://docs.mql4.com/runtime/testing>
 
-So the tester is expected to show the markers and the printed alert text (to be confirmed in T4); email, push and popup are checked on a live or demo chart.
+So the tester is expected to show the markers and the printed alert text (to be confirmed on a chart); email, push and popup are to be checked on a live or demo chart.
