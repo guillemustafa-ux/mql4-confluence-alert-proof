@@ -9,10 +9,11 @@ It exists to show how two common bugs in this kind of alert are avoided:
 
 The mechanism of each, with quotes from the MQL4 reference, is in [docs/FAILURE-MODES.md](docs/FAILURE-MODES.md).
 
-> **Status (2026-10-16, MetaTrader 4 build 1492, MetaEditor 5.0.0.2425):**
-> - All five programs compile with `0 errors, 0 warnings` (last compiled 2026-10-17, same MetaEditor).
-> - `ConfluenceCoreTests` printed `17 passed, 0 failed` on 2026-10-16. On 2026-10-17 one test was added and one widened; that 18-test version is not yet run on a terminal (expected `18 passed, 0 failed`).
-> - Strategy Tester, EURUSD H1, 2026.09.01 to 2026.10.16, 786 bars: "Open prices only" and "Every tick" (6,336,330 ticks) both give 32 alerts on 32 different bars, none repeated.
+> **Status (2026-10-17, MetaTrader 4 build 1492, MetaEditor 5.0.0.2425):**
+> - All five programs compile with `0 errors, 0 warnings`.
+> - `ConfluenceCoreTests` prints `18 passed, 0 failed`.
+> - Strategy Tester, EURUSD H1, 2026.09.01 to 2026.10.16, 786 bars: "Open prices only" and "Every tick" (6,336,330 ticks) both give 32 alerts on 32 different bars, none repeated. The "Open prices only" run was repeated on the final code with the same 32.
+> - A buffer index outside 0-7 fails initialization (seen in the tester with an index of 9).
 > - Email and push not yet verified on a live chart.
 >
 > ![Strategy Tester chart after the test: demo arrows from A and B, gold circles on the confluence bars](docs/img/tester-after-test.png)

@@ -33,7 +33,7 @@ Two independent guards, so a mistake in one does not reopen the bug:
 1. `ConfluenceAlert.mq4` evaluates only when the open time of bar 0 changes (a new bar), on the next tick after a read of A or B set an error code (a safety net: no read set one on build 1492, see [Wrong indicator name or buffer index](#wrong-indicator-name-or-buffer-index)), or when the terminal resets `prev_calculated` to zero after a history reload:
    > "the value of the input parameter prev_calculated will be set to zero by the terminal."
    > — <https://docs.mql4.com/basis/function/events>
-2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. The unit tests cover this guard: test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match. The new-bar gate in guard 1 lives in the indicator and is not unit tested; it is to be checked on a chart.
+2. `ConfluenceCore.mqh` remembers the open time of every bar that already alerted (`CCMemory`). Scanning the same window again returns the match with `isNew == false`. The unit tests cover this guard: test `SameBarAlertsOnceAcrossTicks` scans the same window 50 more times and expects no new match. The new-bar gate in guard 1 lives in the indicator and is not unit tested; the Strategy Tester checked it instead: on build 1492, EURUSD H1 over 786 bars in "Every tick" mode (6,336,330 ticks), the indicator sent 32 alerts on 32 different bars, none repeated.
 
 ## 2. Backdrawn arrows
 
