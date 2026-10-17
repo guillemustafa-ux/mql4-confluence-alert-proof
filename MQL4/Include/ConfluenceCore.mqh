@@ -221,7 +221,8 @@ int CC_ScanHistory(const CCBar &bars[], const int count, const CCOptions &opt,
 
    for(int k = total - 1; k >= 0; k--)
      {
-      if(bars[k].shift <= liveLookback || bars[k].shift > liveLookback + historyBars)
+      // Subtraction, not liveLookback + historyBars, so a huge cap cannot overflow.
+      if(bars[k].shift <= liveLookback || bars[k].shift - liveLookback > historyBars)
          continue;
       int dir = 0;
       ENUM_CC_DIVERGENCE div = CC_DIV_NONE;

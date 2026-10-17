@@ -62,7 +62,7 @@ Limits that follow from the mechanism:
 
 ## Past confluences on load
 
-The live scan only covers shifts `1..InpLookback`, so a freshly loaded instance would show gold circles only inside that window. When the buffers are drawn from scratch (first evaluation of a load, or `prev_calculated` reset to zero), `ConfluenceAlert.mq4` also reads shifts `InpLookback + 1` to `InpLookback + InpHistoryBars` (default 1000, `0` = off) and passes them to `CC_ScanHistory()`. It uses the same matching as `CC_Scan()` but takes no memory, so it cannot record a bar, prime the indicator or report a match as new: history never alerts. It skips bars inside the live window, so no bar is marked by both passes. Tests `HistoryMarksPastConfluence`, `HistoryLeavesLiveMemoryUntouched`, `HistoryAndLiveDoNotRepeat`, `HistorySingleIndicatorNotMarked` and `HistoryRespectsBarCap` cover this.
+The live scan only covers shifts `1..InpLookback`, so a freshly loaded instance would show gold circles only inside that window. When the buffers are drawn from scratch (first evaluation of a load, or `prev_calculated` reset to zero), `ConfluenceAlert.mq4` also reads shifts `InpLookback + 1` to `InpLookback + InpHistoryBars` (default 1000, `0` = off) and passes them to `CC_ScanHistory()`. It uses the same matching as `CC_Scan()` but takes no memory, so it cannot record a bar, prime the indicator or report a match as new: history never alerts. It skips bars inside the live window, so no bar is marked by both passes. That it cannot change the live memory follows from its signature; the tests cover the rest: `HistoryMarksPastConfluence` (past bars found with their kinds), `HistoryReportsNothingAsNew` (20 never-seen confluences, none reported as new), `HistoryAndLiveDoNotRepeat` (a bar of the live window is not returned, a redraw finds it as already alerted, and one bar later it is marked at the first history shift without being new), `HistorySingleIndicatorNotMarked` and `HistoryRespectsBarCap` (including a cap of `INT_MAX`, which must not overflow).
 
 What a past circle means: A's and B's arrows as they are drawn now, not what alerted in real time. A backdrawn divergence is marked on the pivot bar where it ended up, an arrow that was removed later is not marked, and a past circle does not prove an alert went out.
 
@@ -87,16 +87,16 @@ Some indicators clear their arrow buffers with 0 instead, so 0 is treated as "no
 
 ## Where alerts can and cannot be checked
 
-The alert channels do not run in the Strategy Tester:
+The reference says the alert channels are not executed in the Strategy Tester:
 
 > "The Alert(), MessageBox(), PlaySound(), SendFTP, SendMail(), SendNotification() and WebRequest() functions" ... "are not executed in the Strategy Tester."
 > — <https://docs.mql4.com/runtime/testing>
 
-`Print()` is not on that list. The same page says it is skipped during optimization, and on build 1492 it did run in a normal test: each alert's text is in the tester's log. The same log also had an `Alert:` line per alert, with no popup.
+`Print()` is not on that list. The same page says it is skipped during optimization, and on build 1492 it did run in a normal test: each alert's text is in the tester's log. Although the reference lists `Alert()` as not executed, the same log also had an `Alert:` line per alert on build 1492, with no popup (observed).
 
 > "To increase performance, Print() and PrintFormat() functions are not executed when optimizing the trading robot's parameters."
 > — <https://docs.mql4.com/runtime/testing>
 
-Indicators on the visual testing chart: on MT4 build 1492 we observed that the indicators called by `ConfluenceVisualTest` are not drawn while the test runs; they are attached to the tester chart after the test ends, as fresh instances. This is an observation, not documented behaviour: <https://docs.mql4.com/runtime/testing> does not describe it. A fresh `ConfluenceAlert` would only mark its lookback window, which is why the past-confluence pass above exists; with it, the gold circles appear on the tester chart once the test ends (screenshot in the README).
+Indicators on the visual testing chart, observed on MT4 build 1492 with `ConfluenceVisualTest`: two captures taken while the test ran, one of them with the past-confluence pass in place, show no indicator drawn at all; after the test ends the chart shows A's and B's arrows and the gold circles (screenshot in the README); before the past-confluence pass existed, the after-test chart showed no gold circles, although the live logic, which keeps old circles, is unchanged. We infer that the indicators are attached when the test ends, as freshly loaded instances, and that the circles shown come from the past-confluence pass of the `ConfluenceAlert` loaded then. This is an inference from observations, not documented behaviour: <https://docs.mql4.com/runtime/testing> does not describe it. The `marked N past confluences` line of that end-of-test instance was not found in the terminal or tester logs; the one such line in the tester log (`marked 42`) is from the instance started with the test.
 
 So the tester shows the printed alert text and, after the test ends, the markers. Email, push and popup are to be checked on a live or demo chart.

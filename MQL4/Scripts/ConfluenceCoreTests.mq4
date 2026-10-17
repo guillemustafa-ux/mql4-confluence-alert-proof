@@ -466,44 +466,36 @@ string TestHistoryMarksPastConfluence()
    return("");
   }
 
-//--- The history pass reports nothing as new and records nothing: run before
-//--- the first live scan, the live scan still reports its confluence as new;
-//--- run after it, the live memory count and contents are unchanged.
-string TestHistoryLeavesLiveMemoryUntouched()
+//--- Every history bar is a confluence never seen by any memory. The history
+//--- pass must still report none of them as new, so the indicator has nothing
+//--- to alert from it. An implementation that reused CC_Scan with a memory of
+//--- its own would report all 20 as new and fail here. (That it cannot change
+//--- the live memory follows from its signature, which takes none.)
+string TestHistoryReportsNothingAsNew()
   {
    CCOptions opt;
    DefaultOptions(opt);
-   CCMemory memory;
    CCBar bars[];
    CCMatch matches[];
 
    EmptyWindow(bars, 30, D'2026.01.05 10:00');
-   SetConfluence(bars[1], true);      // shift 2, live window
-   SetConfluence(bars[14], true);     // shift 15, history
+   for(int k = 10; k < 30; k++)       // shifts 11..30
+      SetConfluence(bars[k], (k % 2) == 0);
 
    int found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
-   if(found != 1 || CountNew(matches, found) != 0)
-      return("history before live: found " + IntegerToString(found) + ", new " + IntegerToString(CountNew(matches, found)));
-   if(memory.Count() != 0)
-      return("history before live: memory count " + IntegerToString(memory.Count()));
-
-   found = CC_Scan(bars, 10, opt, memory, matches);
-   if(found != 1 || CountNew(matches, found) != 1 || matches[0].shift != 2)
-      return("live scan after history: expected 1 new match at shift 2");
-
-   found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
-   if(found != 1 || CountNew(matches, found) != 0)
-      return("history after live: reported a new match");
-   if(memory.Count() != 1 || memory.Seen(bars[14].time))
-      return("history after live: live memory changed");
+   if(found != 20)
+      return("found " + IntegerToString(found) + ", expected 20");
+   if(CountNew(matches, found) != 0)
+      return(IntegerToString(CountNew(matches, found)) + " history matches reported as new");
    return("");
   }
 
 //--- X alerts at the last shift of the live window (10). On the same chart the
-//--- history pass does not return it, so it is marked by one pass only. One
-//--- bar later X is at shift 11; if the buffers are redrawn then, the history
-//--- pass marks it without reporting it as new, and the live scan still holds
-//--- it as already alerted.
+//--- history pass does not return it, so it is marked by one pass only, and a
+//--- redraw on the same bar (live scan, then history again) finds X in the
+//--- window as already alerted. One bar later X is at shift 11, the first
+//--- history shift; if the buffers are redrawn then, the history pass marks it
+//--- without reporting it as new.
 string TestHistoryAndLiveDoNotRepeat()
   {
    CCOptions opt;
@@ -523,19 +515,19 @@ string TestHistoryAndLiveDoNotRepeat()
    if(found != 0)
       return("same chart: history pass returned a bar of the live window");
 
+   // Redraw on the same bar: the live scan sees X again, already alerted.
+   found = CC_Scan(bars, 10, opt, memory, matches);
+   if(found != 1 || matches[0].time != x || matches[0].isNew)
+      return("redraw on the same bar: X not found once as already alerted");
+
    EmptyWindow(bars, 30, (datetime)(closed + BAR_SECONDS));
    int k = FindShift(bars, x);
    if(k != 10)
       return("test setup: X at index " + IntegerToString(k) + " after new bar");
    SetConfluence(bars[k], true);      // shift 11
    found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
-   if(found != 1 || matches[0].time != x || matches[0].isNew)
-      return("next bar: history pass did not mark X once as not new");
-   if(memory.Count() != 1 || !memory.Seen(x))
-      return("next bar: history pass changed the live memory");
-   found = CC_Scan(bars, 10, opt, memory, matches);
-   if(CountNew(matches, found) != 0)
-      return("next bar: live scan reported a new match");
+   if(found != 1 || matches[0].time != x || matches[0].shift != 11 || matches[0].isNew)
+      return("next bar: history pass did not mark X once at shift 11 as not new");
    return("");
   }
 
@@ -561,7 +553,8 @@ string TestHistorySingleIndicatorNotMarked()
   }
 
 //--- With 5 history bars after a live window of 10, shift 15 is the oldest
-//--- marked bar and shift 16 is not; with 0 history bars nothing is marked.
+//--- marked bar and shift 16 is not; with 0 history bars nothing is marked;
+//--- with the largest int as cap both are marked (no overflow of the range).
 string TestHistoryRespectsBarCap()
   {
    CCOptions opt;
@@ -579,6 +572,9 @@ string TestHistoryRespectsBarCap()
    found = CC_ScanHistory(bars, 30, opt, 10, 0, matches);
    if(found != 0)
       return("cap 0: found " + IntegerToString(found));
+   found = CC_ScanHistory(bars, 30, opt, 10, INT_MAX, matches);
+   if(found != 2)
+      return("cap INT_MAX: found " + IntegerToString(found) + ", expected 2");
    return("");
   }
 
@@ -597,7 +593,7 @@ void OnStart()
    Report("StreamOneNewPerBarTime", TestStreamOneNewPerBarTime());
    Report("WorstCaseKeepsBarWhileInWindow", TestWorstCaseKeepsBarWhileInWindow());
    Report("HistoryMarksPastConfluence", TestHistoryMarksPastConfluence());
-   Report("HistoryLeavesLiveMemoryUntouched", TestHistoryLeavesLiveMemoryUntouched());
+   Report("HistoryReportsNothingAsNew", TestHistoryReportsNothingAsNew());
    Report("HistoryAndLiveDoNotRepeat", TestHistoryAndLiveDoNotRepeat());
    Report("HistorySingleIndicatorNotMarked", TestHistorySingleIndicatorNotMarked());
    Report("HistoryRespectsBarCap", TestHistoryRespectsBarCap());
