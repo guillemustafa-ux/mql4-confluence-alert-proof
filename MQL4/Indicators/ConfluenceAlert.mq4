@@ -67,6 +67,18 @@ datetime  g_errorBarTime = 0;
 bool      g_primed = false;
 bool      g_historyPending = false;
 
+//+------------------------------------------------------------------+
+//| iCustom's buffer index: "Line index. Can be from 0 to 7 and must |
+//| correspond with the index, specified in call of the              |
+//| SetIndexBuffer() function." (docs.mql4.com/indicators/icustom).  |
+//| -1 means "not used". On build 1492 an index of 9 read as "no     |
+//| signal" with no message at all (observed), so it is rejected.    |
+//+------------------------------------------------------------------+
+bool BufferIndexOk(const int buffer)
+  {
+   return(buffer >= -1 && buffer <= 7);
+  }
+
 int OnInit()
   {
    if(InpLookback < 1 || InpLookback > CC_MAX_LOOKBACK)
@@ -82,6 +94,13 @@ int OnInit()
    if(InpAParamCount < 0 || InpAParamCount > 3 || InpBParamCount < 0 || InpBParamCount > 3)
      {
       Print("ConfluenceAlert: parameter counts must be between 0 and 3");
+      return(INIT_FAILED);
+     }
+   if(!BufferIndexOk(InpABuyBuffer) || !BufferIndexOk(InpASellBuffer) ||
+      !BufferIndexOk(InpBRegBullBuffer) || !BufferIndexOk(InpBRegBearBuffer) ||
+      !BufferIndexOk(InpBHidBullBuffer) || !BufferIndexOk(InpBHidBearBuffer))
+     {
+      Print("ConfluenceAlert: buffer indexes must be between 0 and 7, or -1 for unused");
       return(INIT_FAILED);
      }
 
@@ -227,7 +246,9 @@ bool Evaluate(const datetime &time[], const double &high[], const double &low[])
    // A failed read may return a value that looks like "no arrow". Scanning it
    // would record an empty window (and, on the first evaluation, prime on it,
    // so old confluences would alert on the next bar). Nothing is recorded
-   // and the caller retries on the next tick.
+   // and the caller retries on the next tick. Kept as a safety net: on build
+   // 1492 no read set an error code, not even reads of a missing indicator,
+   // which counted as "no signal" (observed, see docs/FAILURE-MODES.md).
    int readError = GetLastError();
    if(readError != 0)
      {
@@ -296,7 +317,8 @@ void MarkHistory(const int rates_total, const datetime &time[], const double &hi
    // until the buffers are next drawn from scratch; nothing is retried. Live
    // alerts are not affected: Evaluate() calls ResetLastError(), which "Sets
    // the value of the predefined variable _LastError into zero"
-   // (docs.mql4.com/common/resetlasterror), before its own reads.
+   // (docs.mql4.com/common/resetlasterror), before its own reads. Like the
+   // live check, a safety net: no read set an error code on build 1492.
    int readError = GetLastError();
    if(readError != 0)
      {

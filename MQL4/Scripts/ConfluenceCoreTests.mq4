@@ -271,6 +271,39 @@ string TestRegularHiddenSwitches()
    return("");
   }
 
+//--- One bar with several divergence kinds gives one match with one kind:
+//--- same direction first, regular before hidden.
+string TestKindPriorityOnOneBar()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCBar bars[];
+   CCMatch matches[];
+
+   // Buy signal with regular and hidden bullish divergence: regular.
+   EmptyWindow(bars, 5, D'2026.01.05 10:00');
+   bars[0].signalBuy = true;
+   bars[0].regularBull = true;
+   bars[0].hiddenBull = true;
+   CCMemory memoryA;
+   int found = CC_Scan(bars, 5, opt, memoryA, matches);
+   if(found != 1 || matches[0].divergence != CC_DIV_REGULAR_BULL)
+      return("regular + hidden bullish: expected 1 regular bullish match");
+
+   // Matching off, buy signal with regular bearish and hidden bullish:
+   // the same direction wins over regular before hidden.
+   EmptyWindow(bars, 5, D'2026.01.05 10:00');
+   bars[0].signalBuy = true;
+   bars[0].regularBear = true;
+   bars[0].hiddenBull = true;
+   CCMemory memoryB;
+   opt.matchDirection = false;
+   found = CC_Scan(bars, 5, opt, memoryB, matches);
+   if(found != 1 || matches[0].signalDir != 1 || matches[0].divergence != CC_DIV_HIDDEN_BULL)
+      return("matching off, regular bearish + hidden bullish: expected 1 BUY + hidden bullish match");
+   return("");
+  }
+
 //--- A confluence older than the lookback is not seen at all, which is why
 //--- the lookback must cover the divergence indicator's backdraw.
 string TestOutsideLookbackIsIgnored()
@@ -380,11 +413,15 @@ string TestStreamOneNewPerBarTime()
    return("");
   }
 
-//--- Worst case for the memory size: X alerts at shift 1, then on every step
-//--- until X sits at the last shift of the window, both the newest bar and the
-//--- oldest bar of the window get a confluence. That pushes 2L-3 other bar
-//--- times (197 for L = 100) into the memory while X can still be found, so
-//--- this fails with 197 slots or fewer and passes with 256.
+//--- Worst case for the memory size: X alerts at shift 1, and on every step
+//--- from then until X sits at the last shift of the window, both the newest
+//--- bar and the oldest bar of the window get a confluence. That is the 2L-1
+//--- distinct bars that can pass through the window while X is in it (199 for
+//--- L = 100): X and 198 others, all of which must end up in the memory, so
+//--- this fails with 198 slots or fewer and passes with 256. The scan goes
+//--- oldest first, so the oldest bar of step 0 is remembered before X and
+//--- cannot push it out: with 198 slots that bar is dropped, with 197 or fewer
+//--- X itself is forgotten while it can still be found.
 string TestWorstCaseKeepsBarWhileInWindow()
   {
    CCOptions opt;
@@ -395,13 +432,16 @@ string TestWorstCaseKeepsBarWhileInWindow()
    int lookback = CC_MAX_LOOKBACK;
    datetime x = D'2026.01.05 00:00';
 
-   // Step 0: X has just closed (shift 1) and is the only confluence.
+   // Step 0: X has just closed (shift 1); the oldest bar of the window also
+   // has a confluence.
    EmptyWindow(bars, lookback, x);
    bars[0].signalBuy = true;
    bars[0].regularBull = true;
+   bars[lookback - 1].signalBuy = true;
+   bars[lookback - 1].regularBull = true;
    int found = CC_Scan(bars, lookback, opt, memory, matches);
-   if(found != 1 || CountNew(matches, found) != 1)
-      return("step 0: X not reported once as new");
+   if(found != 2 || CountNew(matches, found) != 2 || matches[1].time != x)
+      return("step 0: X and the oldest bar not both reported once as new");
 
    for(int step = 1; step < lookback; step++)
      {
@@ -424,6 +464,9 @@ string TestWorstCaseKeepsBarWhileInWindow()
          return("X forgotten at shift " + IntegerToString(step + 1) + " with " +
                 IntegerToString(memory.Capacity()) + " slots");
      }
+   if(memory.Count() != 2 * lookback - 1)
+      return("memory holds " + IntegerToString(memory.Count()) + " bar times, expected 2L-1 = " +
+             IntegerToString(2 * lookback - 1));
    return("");
   }
 
@@ -588,6 +631,7 @@ void OnStart()
    Report("MemoryIgnoresDuplicates", TestMemoryIgnoresDuplicates());
    Report("EmptyValueAndZeroAreNoSignal", TestEmptyValueAndZeroAreNoSignal());
    Report("RegularHiddenSwitches", TestRegularHiddenSwitches());
+   Report("KindPriorityOnOneBar", TestKindPriorityOnOneBar());
    Report("OutsideLookbackIsIgnored", TestOutsideLookbackIsIgnored());
    Report("SignalThenDivergenceOnSameBar", TestSignalThenDivergenceOnSameBar());
    Report("StreamOneNewPerBarTime", TestStreamOneNewPerBarTime());
