@@ -427,6 +427,161 @@ string TestWorstCaseKeepsBarWhileInWindow()
    return("");
   }
 
+void SetConfluence(CCBar &bar, const bool buy)
+  {
+   if(buy)
+     {
+      bar.signalBuy = true;
+      bar.regularBull = true;
+     }
+   else
+     {
+      bar.signalSell = true;
+      bar.hiddenBear = true;
+     }
+  }
+
+//--- History pass: live window of 10 bars, 20 older bars marked. Confluences
+//--- at shifts 15 and 25 are returned oldest first, with their kinds.
+string TestHistoryMarksPastConfluence()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCBar bars[];
+   CCMatch matches[];
+
+   EmptyWindow(bars, 30, D'2026.01.05 10:00');
+   SetConfluence(bars[14], true);     // shift 15
+   SetConfluence(bars[24], false);    // shift 25
+
+   int found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 2)
+      return("found " + IntegerToString(found) + ", expected 2");
+   if(matches[0].shift != 25 || matches[0].signalDir != -1 || matches[0].divergence != CC_DIV_HIDDEN_BEAR)
+      return("first match: expected SELL + hidden bearish at shift 25");
+   if(matches[1].shift != 15 || matches[1].signalDir != 1 || matches[1].divergence != CC_DIV_REGULAR_BULL)
+      return("second match: expected BUY + regular bullish at shift 15");
+   if(matches[0].time != bars[24].time || matches[1].time != bars[14].time)
+      return("match times do not follow the bars");
+   return("");
+  }
+
+//--- The history pass reports nothing as new and records nothing: run before
+//--- the first live scan, the live scan still reports its confluence as new;
+//--- run after it, the live memory count and contents are unchanged.
+string TestHistoryLeavesLiveMemoryUntouched()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCMemory memory;
+   CCBar bars[];
+   CCMatch matches[];
+
+   EmptyWindow(bars, 30, D'2026.01.05 10:00');
+   SetConfluence(bars[1], true);      // shift 2, live window
+   SetConfluence(bars[14], true);     // shift 15, history
+
+   int found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 1 || CountNew(matches, found) != 0)
+      return("history before live: found " + IntegerToString(found) + ", new " + IntegerToString(CountNew(matches, found)));
+   if(memory.Count() != 0)
+      return("history before live: memory count " + IntegerToString(memory.Count()));
+
+   found = CC_Scan(bars, 10, opt, memory, matches);
+   if(found != 1 || CountNew(matches, found) != 1 || matches[0].shift != 2)
+      return("live scan after history: expected 1 new match at shift 2");
+
+   found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 1 || CountNew(matches, found) != 0)
+      return("history after live: reported a new match");
+   if(memory.Count() != 1 || memory.Seen(bars[14].time))
+      return("history after live: live memory changed");
+   return("");
+  }
+
+//--- X alerts at the last shift of the live window (10). On the same chart the
+//--- history pass does not return it, so it is marked by one pass only. One
+//--- bar later X is at shift 11; if the buffers are redrawn then, the history
+//--- pass marks it without reporting it as new, and the live scan still holds
+//--- it as already alerted.
+string TestHistoryAndLiveDoNotRepeat()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCMemory memory;
+   CCBar bars[];
+   CCMatch matches[];
+   datetime closed = D'2026.01.05 10:00';
+
+   EmptyWindow(bars, 30, closed);
+   SetConfluence(bars[9], true);      // shift 10
+   datetime x = bars[9].time;
+   int found = CC_Scan(bars, 10, opt, memory, matches);
+   if(found != 1 || !matches[0].isNew)
+      return("live scan: X not reported once as new");
+   found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 0)
+      return("same chart: history pass returned a bar of the live window");
+
+   EmptyWindow(bars, 30, (datetime)(closed + BAR_SECONDS));
+   int k = FindShift(bars, x);
+   if(k != 10)
+      return("test setup: X at index " + IntegerToString(k) + " after new bar");
+   SetConfluence(bars[k], true);      // shift 11
+   found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 1 || matches[0].time != x || matches[0].isNew)
+      return("next bar: history pass did not mark X once as not new");
+   if(memory.Count() != 1 || !memory.Seen(x))
+      return("next bar: history pass changed the live memory");
+   found = CC_Scan(bars, 10, opt, memory, matches);
+   if(CountNew(matches, found) != 0)
+      return("next bar: live scan reported a new match");
+   return("");
+  }
+
+//--- History bars where only one indicator marks, or the directions disagree
+//--- with matching on, are not marked.
+string TestHistorySingleIndicatorNotMarked()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCBar bars[];
+   CCMatch matches[];
+
+   EmptyWindow(bars, 30, D'2026.01.05 10:00');
+   bars[14].signalBuy = true;         // shift 15: signal only
+   bars[17].regularBull = true;       // shift 18: divergence only
+   bars[19].signalBuy = true;         // shift 20: bullish signal, bearish divergence
+   bars[19].regularBear = true;
+
+   int found = CC_ScanHistory(bars, 30, opt, 10, 20, matches);
+   if(found != 0)
+      return("found " + IntegerToString(found) + " matches, expected 0");
+   return("");
+  }
+
+//--- With 5 history bars after a live window of 10, shift 15 is the oldest
+//--- marked bar and shift 16 is not; with 0 history bars nothing is marked.
+string TestHistoryRespectsBarCap()
+  {
+   CCOptions opt;
+   DefaultOptions(opt);
+   CCBar bars[];
+   CCMatch matches[];
+
+   EmptyWindow(bars, 30, D'2026.01.05 10:00');
+   SetConfluence(bars[14], true);     // shift 15
+   SetConfluence(bars[15], true);     // shift 16
+
+   int found = CC_ScanHistory(bars, 30, opt, 10, 5, matches);
+   if(found != 1 || matches[0].shift != 15)
+      return("cap 5: expected only shift 15, found " + IntegerToString(found));
+   found = CC_ScanHistory(bars, 30, opt, 10, 0, matches);
+   if(found != 0)
+      return("cap 0: found " + IntegerToString(found));
+   return("");
+  }
+
 void OnStart()
   {
    Report("SameBarAlertsOnceAcrossTicks", TestSameBarAlertsOnceAcrossTicks());
@@ -441,5 +596,10 @@ void OnStart()
    Report("SignalThenDivergenceOnSameBar", TestSignalThenDivergenceOnSameBar());
    Report("StreamOneNewPerBarTime", TestStreamOneNewPerBarTime());
    Report("WorstCaseKeepsBarWhileInWindow", TestWorstCaseKeepsBarWhileInWindow());
+   Report("HistoryMarksPastConfluence", TestHistoryMarksPastConfluence());
+   Report("HistoryLeavesLiveMemoryUntouched", TestHistoryLeavesLiveMemoryUntouched());
+   Report("HistoryAndLiveDoNotRepeat", TestHistoryAndLiveDoNotRepeat());
+   Report("HistorySingleIndicatorNotMarked", TestHistorySingleIndicatorNotMarked());
+   Report("HistoryRespectsBarCap", TestHistoryRespectsBarCap());
    Print(IntegerToString(g_passed), " passed, ", IntegerToString(g_failed), " failed");
   }

@@ -200,6 +200,45 @@ int CC_Scan(const CCBar &bars[], const int count, const CCOptions &opt, CCMemory
    return(found);
   }
 
+//+------------------------------------------------------------------+
+//| History pass for bars older than the live window, run when the   |
+//| indicator's buffers are drawn from scratch. Same matching as     |
+//| CC_Scan, but there is no CCMemory parameter: nothing is recorded,|
+//| so the live "already alerted" memory and its priming cannot be   |
+//| changed, and every match has isNew == false (history never       |
+//| alerts). Only bars with                                          |
+//|   liveLookback < shift <= liveLookback + historyBars             |
+//| are returned. Bars inside the live window are left to CC_Scan,   |
+//| so no bar is marked by both passes.                              |
+//| bars[] is newest first, as for CC_Scan; matches are oldest first.|
+//+------------------------------------------------------------------+
+int CC_ScanHistory(const CCBar &bars[], const int count, const CCOptions &opt,
+                   const int liveLookback, const int historyBars, CCMatch &matches[])
+  {
+   ArrayResize(matches, 0);
+   int total = (count < ArraySize(bars)) ? count : ArraySize(bars);
+   int found = 0;
+
+   for(int k = total - 1; k >= 0; k--)
+     {
+      if(bars[k].shift <= liveLookback || bars[k].shift > liveLookback + historyBars)
+         continue;
+      int dir = 0;
+      ENUM_CC_DIVERGENCE div = CC_DIV_NONE;
+      if(!CC_MatchBar(bars[k], opt, dir, div))
+         continue;
+
+      ArrayResize(matches, found + 1);
+      matches[found].time       = bars[k].time;
+      matches[found].shift      = bars[k].shift;
+      matches[found].signalDir  = dir;
+      matches[found].divergence = div;
+      matches[found].isNew      = false;
+      found++;
+     }
+   return(found);
+  }
+
 string CC_SignalName(const int signalDir)
   {
    return(signalDir > 0 ? "BUY" : "SELL");

@@ -13,6 +13,10 @@
 //|     scanned on each new bar; the memory stops the same bar from  |
 //|     alerting again when it moves one bar older.                  |
 //|                                                                  |
+//| When the buffers are drawn from scratch (load, history reload),  |
+//| confluences older than the window are also marked, up to         |
+//| InpHistoryBars bars. Those marks never alert.                    |
+//|                                                                  |
 //| Signal rule: a buffer value counts as a signal when it is not    |
 //| EMPTY_VALUE and not 0 (some indicators clear buffers with 0).    |
 //+------------------------------------------------------------------+
@@ -46,6 +50,7 @@ input int    InpBHidBullBuffer = 2;             // B: hidden bullish buffer (-1 
 input int    InpBHidBearBuffer = 3;             // B: hidden bearish buffer (-1 = unused)
 
 input int    InpLookback     = 10;              // Closed bars scanned (1-100), > B's backdraw
+input int    InpHistoryBars  = 1000;            // Older bars marked on load, never alerted (0 = off)
 input bool   InpMatchDirection = true;          // Bullish A only with bullish B (bear with bear)
 input bool   InpUseRegular   = true;            // Alert on regular divergence
 input bool   InpUseHidden    = true;            // Alert on hidden divergence
@@ -60,12 +65,18 @@ CCOptions g_options;
 datetime  g_lastBarTime = 0;
 datetime  g_errorBarTime = 0;
 bool      g_primed = false;
+bool      g_historyPending = false;
 
 int OnInit()
   {
    if(InpLookback < 1 || InpLookback > CC_MAX_LOOKBACK)
      {
       Print("ConfluenceAlert: InpLookback must be between 1 and ", IntegerToString(CC_MAX_LOOKBACK));
+      return(INIT_FAILED);
+     }
+   if(InpHistoryBars < 0)
+     {
+      Print("ConfluenceAlert: InpHistoryBars must be 0 or more");
       return(INIT_FAILED);
      }
    if(InpAParamCount < 0 || InpAParamCount > 3 || InpBParamCount < 0 || InpBParamCount > 3)
@@ -85,6 +96,7 @@ int OnInit()
    g_lastBarTime = 0;
    g_errorBarTime = 0;
    g_primed = false;
+   g_historyPending = false;
 
    SetIndexBuffer(0, g_bullMarks);
    SetIndexBuffer(1, g_bearMarks);
@@ -128,6 +140,28 @@ bool ReadB(const int buffer, const int shift)
    if(buffer < 0)
       return(false);
    return(CC_IsSignal(ReadIndicator(InpBName, InpBParamCount, InpBParam1, InpBParam2, InpBParam3, buffer, shift)));
+  }
+
+void ReadBar(CCBar &bar, const datetime &time[], const int shift)
+  {
+   bar.time        = time[shift];
+   bar.shift       = shift;
+   bar.signalBuy   = ReadA(InpABuyBuffer, shift);
+   bar.signalSell  = ReadA(InpASellBuffer, shift);
+   bar.regularBull = ReadB(InpBRegBullBuffer, shift);
+   bar.regularBear = ReadB(InpBRegBearBuffer, shift);
+   bar.hiddenBull  = ReadB(InpBHidBullBuffer, shift);
+   bar.hiddenBear  = ReadB(InpBHidBearBuffer, shift);
+  }
+
+void PlaceMark(const CCMatch &match, const double &high[], const double &low[])
+  {
+   int s = match.shift;
+   double gap = 1.3 * (high[s] - low[s]);
+   if(match.signalDir > 0)
+      g_bullMarks[s] = low[s] - gap;
+   else
+      g_bearMarks[s] = high[s] + gap;
   }
 
 string TimeframeName()
@@ -188,17 +222,7 @@ bool Evaluate(const datetime &time[], const double &high[], const double &low[])
    ArrayResize(bars, InpLookback);
    ResetLastError();
    for(int k = 0; k < InpLookback; k++)
-     {
-      int shift = k + 1;     // shift 0 is still forming and is never evaluated
-      bars[k].time        = time[shift];
-      bars[k].shift       = shift;
-      bars[k].signalBuy   = ReadA(InpABuyBuffer, shift);
-      bars[k].signalSell  = ReadA(InpASellBuffer, shift);
-      bars[k].regularBull = ReadB(InpBRegBullBuffer, shift);
-      bars[k].regularBear = ReadB(InpBRegBearBuffer, shift);
-      bars[k].hiddenBull  = ReadB(InpBHidBullBuffer, shift);
-      bars[k].hiddenBear  = ReadB(InpBHidBearBuffer, shift);
-     }
+      ReadBar(bars[k], time, k + 1);     // shift 0 is still forming and is never evaluated
 
    // A failed read may return a value that looks like "no arrow". Scanning it
    // would record an empty window (and, on the first evaluation, prime on it,
@@ -228,12 +252,7 @@ bool Evaluate(const datetime &time[], const double &high[], const double &low[])
    int freshCount = 0;
    for(int m = 0; m < found; m++)
      {
-      int s = matches[m].shift;
-      double gap = 1.3 * (high[s] - low[s]);
-      if(matches[m].signalDir > 0)
-         g_bullMarks[s] = low[s] - gap;
-      else
-         g_bearMarks[s] = high[s] + gap;
+      PlaceMark(matches[m], high, low);
 
       // The first evaluation only records what is already on the chart.
       if(!matches[m].isNew || !g_primed)
@@ -247,6 +266,50 @@ bool Evaluate(const datetime &time[], const double &high[], const double &low[])
    if(freshCount > 0)
       SendAlerts(body, latest, freshCount);
    return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Marks confluences on shifts InpLookback+1 .. InpLookback+        |
+//| InpHistoryBars, after a successful evaluation on fresh buffers.  |
+//| It only draws: no alert, and g_memory, g_primed, g_lastBarTime   |
+//| and g_errorBarTime are not used (CC_ScanHistory has no memory    |
+//| parameter). The marks show A and B as they are drawn now, not    |
+//| what alerted in real time.                                       |
+//+------------------------------------------------------------------+
+void MarkHistory(const int rates_total, const datetime &time[], const double &high[], const double &low[])
+  {
+   // Capped by the bars on the chart before adding, so a huge input cannot overflow.
+   int count = rates_total - 1 - InpLookback;
+   if(InpHistoryBars < count)
+      count = InpHistoryBars;
+   if(count <= 0)
+      return;
+   int last = InpLookback + count;
+
+   CCBar bars[];
+   ArrayResize(bars, count);
+   ResetLastError();
+   for(int k = 0; k < count; k++)
+      ReadBar(bars[k], time, InpLookback + 1 + k);
+
+   // A failed read may look like "no arrow", so history marks are skipped
+   // until the buffers are next drawn from scratch; nothing is retried. Live
+   // alerts are not affected: Evaluate() calls ResetLastError(), which "Sets
+   // the value of the predefined variable _LastError into zero"
+   // (docs.mql4.com/common/resetlasterror), before its own reads.
+   int readError = GetLastError();
+   if(readError != 0)
+     {
+      Print("ConfluenceAlert: reading A or B for past bars failed, error ", IntegerToString(readError), "; past bars not marked");
+      return;
+     }
+
+   CCMatch matches[];
+   int found = CC_ScanHistory(bars, count, g_options, InpLookback, count, matches);
+   for(int m = 0; m < found; m++)
+      PlaceMark(matches[m], high, low);
+   Print("ConfluenceAlert: marked ", IntegerToString(found), " past confluences on shifts ",
+         IntegerToString(InpLookback + 1), "-", IntegerToString(last), " (no alerts)");
   }
 
 int OnCalculate(const int rates_total,
@@ -270,6 +333,9 @@ int OnCalculate(const int rates_total,
       g_bullMarks[i] = EMPTY_VALUE;
       g_bearMarks[i] = EMPTY_VALUE;
      }
+   // Every buffer value was just cleared, so past marks are drawn again.
+   if(prev_calculated <= 0 && InpHistoryBars > 0)
+      g_historyPending = true;
 
    if(rates_total <= InpLookback + 1)
       return(0);
@@ -283,5 +349,13 @@ int OnCalculate(const int rates_total,
    // Only a successful evaluation consumes the bar; after a failed read the
    // next tick evaluates again, and the memory still blocks repeats.
    g_lastBarTime = Evaluate(time, high, low) ? time[0] : (datetime)0;
+
+   // After the live evaluation, so A and B have just been read without error
+   // and the live state is already settled for this bar.
+   if(g_historyPending && g_lastBarTime != 0)
+     {
+      g_historyPending = false;
+      MarkHistory(rates_total, time, high, low);
+     }
    return(rates_total);
   }
