@@ -9,9 +9,12 @@ It exists to show how two common bugs in this kind of alert are avoided:
 
 The mechanism of each, with quotes from the MQL4 reference, is in [docs/FAILURE-MODES.md](docs/FAILURE-MODES.md).
 
-> **Status:** written without a MetaTrader 4 install. Nothing here has been compiled or run yet.
-> TODO(compile): MetaEditor build number and compile result (0 errors, 0 warnings) go here.
-> TODO(chart): test script output and a visual Strategy Tester screenshot go here.
+> **Status (2026-10-16, MetaTrader 4 build 1492, MetaEditor 5.0.0.2425):**
+> - All five programs compile with `0 errors, 0 warnings`.
+> - `ConfluenceCoreTests` prints `17 passed, 0 failed`.
+> - Strategy Tester, EURUSD H1, 2026.09.01 to 2026.10.16, 786 bars: "Open prices only" and "Every tick" (6,336,330 ticks) both give 32 alerts on 32 different bars, none repeated.
+>
+> ![Strategy Tester chart after the test: demo arrows from A and B, gold circles on the confluence bars](docs/img/tester-after-test.png)
 
 ## What is in the repo
 
@@ -19,7 +22,7 @@ The layout mirrors the MT4 data folder, so `MQL4/` can be copied over yours.
 
 | File | Role |
 |------|------|
-| `MQL4/Include/ConfluenceCore.mqh` | Pure logic: which bars in the lookback window have a confluence, and which of those have not alerted yet (ring buffer of bar times). No terminal calls, so it has unit tests (not run yet). |
+| `MQL4/Include/ConfluenceCore.mqh` | Pure logic: which bars in the lookback window have a confluence, and which of those have not alerted yet (ring buffer of bar times). No terminal calls, so it has unit tests. |
 | `MQL4/Indicators/ConfluenceAlert.mq4` | The indicator you attach. Reads A and B with `iCustom`, evaluates once per new bar (again on the next tick if a read fails), alerts, draws gold circles on confluence bars. When it loads it also draws gold circles on past confluences, without alerting. |
 | `MQL4/Indicators/SwingArrows.mq4` | Demo indicator A: swing low (buffer 0, bullish) and swing high (buffer 1, bearish) arrows. Draws back `InpRight` bars on purpose. |
 | `MQL4/Indicators/RsiDivergence.mq4` | Demo indicator B: RSI regular and hidden divergence on price pivots. Buffers 0 regular bull, 1 regular bear, 2 hidden bull, 3 hidden bear. Arrow on the pivot bar (backdraw). |
@@ -34,7 +37,7 @@ The layout mirrors the MT4 data folder, so `MQL4/` can be copied over yours.
 3. Open MetaEditor and compile, in this order: `Indicators/SwingArrows.mq4`, `Indicators/RsiDivergence.mq4`, `Indicators/ConfluenceAlert.mq4`, `Scripts/ConfluenceCoreTests.mq4`, `Experts/ConfluenceVisualTest.mq4`. Each should report 0 errors.
 4. **Unit tests.** In MT4's Navigator, drag `Scripts > ConfluenceCoreTests` onto any chart. Open the **Experts** tab of the Terminal window. Expect seventeen `PASS` lines and `17 passed, 0 failed`.
 5. **Live chart.** Drag `SwingArrows`, `RsiDivergence` and `ConfluenceAlert` onto a chart (M5 shows results fastest). Gold circles mark confluences found inside the lookback window and, from the moment the indicator loads, past confluences up to `InpHistoryBars` bars older than the window. Past circles never alert. The first evaluation only records what is already on the chart; popups start with the next confluence that appears (see Limits).
-6. **Strategy Tester.** Open the Strategy Tester, choose Expert Advisor `ConfluenceVisualTest`, a symbol and period, tick **Visualization**, press Start. The MQL4 reference says indicators called directly from the tested EA can be drawn on the testing chart. On MT4 build 1492 we observed that none of the three is drawn while the test runs: they are attached to the tester chart only after the test ends (the reference's testing pages do not describe this). The `ConfluenceAlert` attached then is a fresh instance, so the gold circles on it are expected to come from the past-confluence marking, with one `ConfluenceAlert: marked N past confluences` line in the log (to be confirmed on a chart). Popup, email and push are not executed in the tester. The alert text is also written with `Print()`, which is expected to show in the tester's log (inferred from the reference, to be confirmed on a chart).
+6. **Strategy Tester.** Open the Strategy Tester, choose Expert Advisor `ConfluenceVisualTest`, a symbol and period, tick **Visualization**, press Start. The MQL4 reference says indicators called directly from the tested EA can be drawn on the testing chart. On MT4 build 1492 we observed that none of the three is drawn while the test runs: they are attached to the tester chart only after the test ends (the reference's testing pages do not describe this). The `ConfluenceAlert` attached then is a fresh instance, so the gold circles on it come from the past-confluence marking (screenshot above). The tester's log shows one `ConfluenceAlert: marked N past confluences` line per load. Popup, email and push are not executed in the tester. On build 1492 each alert appears in the tester's log twice: once from `Print()` and once as an `Alert:` line, with no popup.
 7. **Email.** On a live or demo chart, configure the terminal settings **Email** tab, set `InpEmail = true` on `ConfluenceAlert` and wait for a confluence. Push works the same way with the **Notifications** tab and `InpPush = true`.
 
 ## Using it with your own two indicators

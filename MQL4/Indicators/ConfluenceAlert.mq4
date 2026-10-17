@@ -199,8 +199,8 @@ void SendAlerts(const string body, const string latest, const int freshCount)
   {
    string subject = "ConfluenceAlert " + Symbol() + " " + TimeframeName();
    // The reference lists Alert/SendMail/SendNotification as not executed in the
-   // Strategy Tester and Print as skipped only during optimization, so Print is
-   // expected to leave the alert text in the tester log (to be confirmed on a chart).
+   // Strategy Tester and Print as skipped only during optimization, so Print
+   // leaves the alert text in the tester log (seen on build 1492).
    Print(subject, ": ", body);
 
    if(InpPopup)

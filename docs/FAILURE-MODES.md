@@ -92,11 +92,11 @@ The alert channels do not run in the Strategy Tester:
 > "The Alert(), MessageBox(), PlaySound(), SendFTP, SendMail(), SendNotification() and WebRequest() functions" ... "are not executed in the Strategy Tester."
 > — <https://docs.mql4.com/runtime/testing>
 
-`Print()` is not on that list. The same page says it is skipped during optimization, so it is expected to run in a normal visual test (an inference, to be confirmed on a chart):
+`Print()` is not on that list. The same page says it is skipped during optimization, and on build 1492 it did run in a normal test: each alert's text is in the tester's log. The same log also had an `Alert:` line per alert, with no popup.
 
 > "To increase performance, Print() and PrintFormat() functions are not executed when optimizing the trading robot's parameters."
 > — <https://docs.mql4.com/runtime/testing>
 
-Indicators on the visual testing chart: on MT4 build 1492 we observed that the indicators called by `ConfluenceVisualTest` are not drawn while the test runs; they are attached to the tester chart after the test ends, as fresh instances. This is an observation, not documented behaviour: <https://docs.mql4.com/runtime/testing> does not describe it. A fresh `ConfluenceAlert` would only mark its lookback window, which is why the past-confluence pass above exists; with it, the gold circles are expected on the tester chart once the test ends (to be confirmed on a chart).
+Indicators on the visual testing chart: on MT4 build 1492 we observed that the indicators called by `ConfluenceVisualTest` are not drawn while the test runs; they are attached to the tester chart after the test ends, as fresh instances. This is an observation, not documented behaviour: <https://docs.mql4.com/runtime/testing> does not describe it. A fresh `ConfluenceAlert` would only mark its lookback window, which is why the past-confluence pass above exists; with it, the gold circles appear on the tester chart once the test ends (screenshot in the README).
 
-So the tester is expected to show the printed alert text (to be confirmed on a chart) and, after the test ends, the markers; email, push and popup are to be checked on a live or demo chart.
+So the tester shows the printed alert text and, after the test ends, the markers. Email, push and popup are to be checked on a live or demo chart.
