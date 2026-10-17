@@ -5,8 +5,9 @@
 //| says "only those indicators can be drawn in the testing chart    |
 //| that are directly called from the expert under test". Indicators |
 //| called through ConfluenceAlert are not called directly, so A and |
-//| B are called here as well. That all three appear on the tester   |
-//| chart is expected from that sentence, to be confirmed on a chart.|
+//| B are called here as well. On MT4 build 1492 all three appeared  |
+//| on the tester chart only after the test ended (observed; the     |
+//| reference's testing pages do not describe it).                   |
 //+------------------------------------------------------------------+
 #property strict
 #property description "Runs SwingArrows, RsiDivergence and ConfluenceAlert in the visual tester. No trading."

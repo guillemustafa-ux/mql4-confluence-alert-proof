@@ -60,6 +60,17 @@ Limits that follow from the mechanism:
 - An arrow drawn back further than `InpLookback` bars is never seen. Test `OutsideLookbackIsIgnored` shows a match at shift 7 is missed with lookback 5 and found with lookback 8. Set `InpLookback` larger than B's backdraw.
 - The memory holds 256 bar times. While one bar stays in a window of L bars, at most 2L-1 distinct bars pass through that window, so for the allowed `InpLookback` of 1..100 a bar cannot be forgotten while it can still be found. Test `MemoryRingKeepsMostRecent` checks that the newest 256 entries survive a wrap. Test `StreamOneNewPerBarTime` runs 600 bars with a confluence on every bar and lookback 100, one bar per step, and expects each bar time to be reported as new exactly once. In that stream only the newest bar is added on each step, so it exercises the wrap over many bars but not the 2L-1 worst case. Test `WorstCaseKeepsBarWhileInWindow` covers that case: while one bar moves from shift 1 to shift 100, the newest bar and the oldest bar of the window get a confluence on every step, 197 other bar times enter the memory, and the bar must still be remembered at shift 100. It would fail with 197 slots or fewer. Test `MemoryRingKeepsMostRecent` also fails if the capacity drops below 2 * 100 - 1.
 
+## Past confluences on load
+
+The live scan only covers shifts `1..InpLookback`, so a freshly loaded instance would show gold circles only inside that window. When the buffers are drawn from scratch (first evaluation of a load, or `prev_calculated` reset to zero), `ConfluenceAlert.mq4` also reads shifts `InpLookback + 1` to `InpLookback + InpHistoryBars` (default 1000, `0` = off) and passes them to `CC_ScanHistory()`. It uses the same matching as `CC_Scan()` but takes no memory, so it cannot record a bar, prime the indicator or report a match as new: history never alerts. It skips bars inside the live window, so no bar is marked by both passes. Tests `HistoryMarksPastConfluence`, `HistoryLeavesLiveMemoryUntouched`, `HistoryAndLiveDoNotRepeat`, `HistorySingleIndicatorNotMarked` and `HistoryRespectsBarCap` cover this.
+
+What a past circle means: A's and B's arrows as they are drawn now, not what alerted in real time. A backdrawn divergence is marked on the pivot bar where it ended up, an arrow that was removed later is not marked, and a past circle does not prove an alert went out.
+
+If a read of A or B sets an error during this pass, the past circles are skipped for that load and one line is printed; the live state is not touched, and the live evaluation calls `ResetLastError()` before its own reads:
+
+> "Sets the value of the predefined variable _LastError into zero."
+> — <https://docs.mql4.com/common/resetlasterror>
+
 ## The "no signal" rule
 
 A buffer value counts as a signal when it is not `EMPTY_VALUE` and not 0. `EMPTY_VALUE` is the documented default:
@@ -86,4 +97,6 @@ The alert channels do not run in the Strategy Tester:
 > "To increase performance, Print() and PrintFormat() functions are not executed when optimizing the trading robot's parameters."
 > — <https://docs.mql4.com/runtime/testing>
 
-So the tester is expected to show the markers and the printed alert text (to be confirmed on a chart); email, push and popup are to be checked on a live or demo chart.
+Indicators on the visual testing chart: on MT4 build 1492 we observed that the indicators called by `ConfluenceVisualTest` are not drawn while the test runs; they are attached to the tester chart after the test ends, as fresh instances. This is an observation, not documented behaviour: <https://docs.mql4.com/runtime/testing> does not describe it. A fresh `ConfluenceAlert` would only mark its lookback window, which is why the past-confluence pass above exists; with it, the gold circles are expected on the tester chart once the test ends (to be confirmed on a chart).
+
+So the tester is expected to show the printed alert text (to be confirmed on a chart) and, after the test ends, the markers; email, push and popup are to be checked on a live or demo chart.
